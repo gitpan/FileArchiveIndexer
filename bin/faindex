@@ -1,0 +1,124 @@
+#!/usr/bin/perl -w
+use strict;
+use base 'LEOCHARRE::CLI';
+use lib './lib';
+use FileArchiveIndexer::IndexingRun;
+our $VERSION = sprintf "%d.%02d", q$Revision: 1.5 $ =~ /(\d+)/g;
+
+my $o = gopts('Dl:rc:dm:');
+
+if ($o->{d}){
+  DEBUG(1);
+  $FileArchiveIndexer::IndexingRun::DEBUG = 1;
+} 
+
+if ($o->{D}){
+  DEBUG(1);
+  $FileArchiveIndexer::DEBUG=1;
+  $FileArchiveIndexer::IndexingRun::DEBUG = 1;
+  $FileArchiveIndexer::Indexing::DEBUG = 1;
+
+}
+
+
+$o->{c} ||= '/etc/faindex.conf';
+$o->{m} ||= 2;
+$o->{r} ||= 0;
+$o->{l} ||= undef;
+
+
+
+
+my $i = new FileArchiveIndexer::IndexingRun({ 
+   abs_conf => $o->{c},
+   run_max => $o->{m},
+   running_as_remote_indexer => $o->{r},
+   abs_log => $o->{l},
+   use_ocr => 1,
+});
+
+
+$i->run;
+
+
+
+exit;
+
+=head1 NAME
+
+faindex - indexing run for FileArchiveIndexer
+
+=head1 DESCRIPTION
+
+by default we look for the config file in /etc/faindex.conf
+if you desire another location, specify with -c 
+default is to use ocr
+Requires PDF::OCR package
+
+=head1 OPTION FLAGS
+
+   -r run as remote indexer, this requires your abs_conf to have SCP_USER and SCP_HOST set
+   -d debug on
+   -D turn on ALL DEBUG flags
+   -v print version and exit
+   -h help
+
+=head1 PARAMETERS
+
+   -m run max, how many to index before we stop
+   -l abs path to log file, if none, will not log, this can also be in your log file as 'abs_log'
+   -c abs path to conf file, by default it's /etc/faindex.conf
+
+=head1 EXAMPLE USAGE
+
+index next 20 pending
+
+   faindex -m 20
+
+optionally run from another machine, that is, the server being remote, will use scp
+
+   faindex -r -m 20
+
+use another conf file
+
+   faindex -c /etc/faindex.conf
+
+=head1 EXAMPLE conf
+
+This is a YAML file
+
+   ---
+   DBUSER: joe
+   DBNAME: faindex
+   DBHOST: localhost
+   DBPASSWORD: joepw
+
+Obviously if you are using as a remote indexer (many machines indexing for one server)
+
+   ---
+   DBUSER: joe
+   DBNAME: faindex
+   DBHOST: 192.168.0.123
+   DBPASSWORD: joepw
+   SCP_USER: joe
+   SCP_HOST: 192.168.0.123
+
+Save that file as /etc/faindex.conf
+and then call command as
+
+   faindex -r -c /etc/faindex.conf
+      
+=head1 SEE ALSO
+
+L<FileArchiveIndexer>
+L<FileArchiveIndexer::IndexingRun>
+
+=head1 AUTHOR
+
+Leo Charre leocharre at cpan dot org
+
+=cut
+
+
+
+

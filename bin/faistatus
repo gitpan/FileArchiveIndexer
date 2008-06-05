@@ -1,0 +1,454 @@
+#!/usr/bin/perl -w
+use strict;
+use base 'LEOCHARRE::CLI';
+use lib './lib';
+use FileArchiveIndexer;
+use Time::Format 'time_format';
+use YAML;
+use Data::Dumper;
+our $VERSION = sprintf "%d.%02d", q$Revision: 1.17 $ =~ /(\d+)/g;
+
+my $o = gopts('Dac:dp:l:iRCSLs:');
+
+if ($o->{d}){
+   DEBUG(1);
+   $FileArchiveIndexer::DEBUG=1;
+}
+
+$o->{c} ||= '/etc/faindex.conf';
+my $fix = new FileArchiveIndexer({ abs_conf => $o->{c} });
+
+
+clear_indexing_locks();
+
+restart();
+
+cleanout();
+
+dupe_status();
+
+files_status();
+
+indexing_run_status();
+
+fai_status();
+
+exit;
+
+
+
+
+
+
+
+
+sub clear_indexing_locks {
+   $o->{L} or return;
+	$o->{s} ||= 0;
+
+   unless ($o->{s}){
+   
+      yn('drop and rebuild indexing_lock table?') or exit;
+      $fix->dbsetup_reset_indexing_lock;
+      $fix->dbh->commit;
+      exit;
+   
+   }
+   
+	$fix->indexing_lock_cleanup($o->{s});
+
+	exit;
+}
+
+
+
+sub stop_indexers {
+   if ($o->{S}){ _stop_indexers() and exit; }
+}
+
+
+sub restart {
+   if ($o->{R}){
+      _stop_indexers();
+      _cleanout_temp();
+      _restart_indexers();
+      exit;
+   }
+}
+
+sub cleanout {
+   if ($o->{C}){
+      print STDERR "Cleaning out.. \n";
+      _stop_indexers();
+      _cleanout_temp();
+      exit;
+   }
+}
+
+sub indexing_run_status {
+
+   $o->{i} or return;
+#   require Sys::Info;
+#   my $n = Sys::Info->new;
+#   printf " load: %s\n",
+#   $n->cpu->load;
+
+
+  
+   printf "%s indexers running\n", scalar @{_get_indexer_pids()};
+
+   exit;
+}
+
+sub dupe_status { # will deprecate
+   $o->{D} or return;
+
+      my $r = $fix->dbh->selectall_arrayref('SELECT id FROM md5sum group by md5sum HAVING count(*) > 1');
+      printf "md5sum table dupe count: %s\n", scalar @$r;
+      exit;      
+}
+
+
+sub files_status {
+   my $files = argv_aspaths();
+   $files||=[];
+
+   scalar @$files or return;
+
+   for (@$files){
+      my $abs = Cwd::abs_path($_) or warn("cant get Cwd::abs_path($_)") and next;
+
+      file_status($abs);   
+   }
+
+   exit;
+}
+
+
+
+
+
+
+
+sub file_status {
+   my $abs_file = shift;
+
+   my $result;
+   if ( my $md5sumid = $fix->get_md5sumid_by_path($abs_file) ){
+		print STDERR "got md5id $md5sumid\n" if DEBUG;
+	
+      if ($o->{p} and $o->{l}){ #if page or line
+			       
+         $result.="searched for page $$o{p} line $$o{l}\n";
+         
+         if (my $text = $fix->get_indexed_text($md5sumid,$o->{p},$o->{l}) ){
+				print STDERR "found text\n" if DEBUG;
+            $result.="[[[$text]]]\n\n";
+
+         }
+
+         else {
+            $result.="Nothing found\n\n";
+         }
+      
+
+
+      }
+      elsif ($o->{p}){
+
+         $result.="searched for page $$o{p}\n";
+         
+            if ( my $text = $fix->get_indexed_text($md5sumid,$o->{p}) ){
+
+               $result.="[[[$text]]]\n\n";
+
+            }
+
+            else {
+               $result.="Nothing found\n\n";
+            }  
+      }
+
+      elsif( $o->{a} ){
+
+         $result.="searched for all text \n";
+         
+            if (my $text = $fix->get_indexed_text($md5sumid)){
+
+               $result.="[[[$text]]]\n\n";
+
+            }
+
+            else {
+               $result.="Nothing found\n\n";
+            }   
+      
+      }
+
+      else { # show file status
+
+         my ($mtime, $md5sum) = $fix->file_mtime_md5sum($abs_file);
+         $mtime ||= '';
+         $md5sum ||= '';
+         
+         # is it indexed?
+         $result.= sprintf "
+         is indexed: %s
+         pages indexed: %s
+         total data entries: %s
+         mtime %s
+         md5sum %s
+
+         ",
+         $fix->file_is_indexed($md5sumid),
+         $fix->file_pages_indexed($md5sumid),
+         $fix->file_data_entries($md5sumid),
+         $mtime,
+         $md5sum;
+      
+      
+      }
+
+   }  
+   
+   else {
+      $result.="File $abs_file appears not to be indexed.\n";
+      
+   }   
+   
+
+	printf "FileArchiveIndexer v %s status
+   %s
+   %s
+   ",
+	$FileArchiveIndexer::VERSION,
+   $abs_file,
+   $result;
+   
+ 
+}
+
+
+
+
+
+
+sub _cleanout_temp {
+
+   require File::Path;
+
+   # clean out temp
+   opendir(TMP,'/tmp');
+   my @tmps = map { '/tmp/'.$_; } grep { /^fai_tmp|^tmp_|\.tesseract/i } readdir TMP;
+   closedir @tmps;
+
+   push @tmps, 'PDF-ORC-Thorough-Cached', 'var';
+
+   map { File::Path::rmtree($_) ; print STDERR "Cleaned out '$_'\n" if DEBUG; } @tmps;
+
+   return 1;
+
+}
+
+sub _restart_indexers {
+   
+   
+   
+   my @p = split(/\n/, `ps -C faindex | grep faindex`);
+
+   
+
+   require File::Which;
+   
+   my $bin = File::Which::which('faindex');
+   
+   my @args =($bin,'-m','2000');
+   
+   if ($fix->{SCP_HOST}){ # HACK
+      push @args, '-r';   
+   }
+   
+   for (1,2){ # stop at 2
+      
+      if ( ! fork() ){   # then is child
+         system(@args);#==0 or die("restart indexers dies.. $?");
+         exit;
+      }
+      else {
+         print STDERR "Indexer Started\n";         
+      }
+   }
+
+   return 1;
+   
+
+   
+}
+
+sub _stop_indexers {
+   
+   for ( @{_get_indexer_pids()} ){
+      system('kill','-9',$_);
+      print STDERR " killed $_\n";   
+   }
+
+   return 1;   
+   
+}
+
+sub _get_indexer_pids {
+
+   my @p = map { /^\s*(\d{2,20})\b/g } split(/\n/, `ps -C faindex | grep faindex`);
+  
+   return \@p;
+
+}
+
+
+
+sub fai_status {
+
+	printf "FileArchiveIndexer v %s status
+   %s
+   DOCUMENT_ROOT: %s
+   Total files: %s
+   Total files indexed %s
+   Total files pending %s
+   %s percent indexed\n\n",
+	$FileArchiveIndexer::VERSION,
+	time_format('yyyy/mm/dd hh:mm',time),
+	$fix->DOCUMENT_ROOT,
+	$fix->total_files,
+	$fix->total_files_indexed,
+	$fix->total_files_pending,
+	$fix->percentage_indexed;
+	
+
+   _show_locked_files();
+
+   $fix->status_log_enter;
+
+   statuslog_report();  
+
+   exit;
+}
+
+
+sub _show_locked_files {
+
+	my $locked = $fix->files_locked;
+	
+	printf '%30s', 'Being indexed: '. scalar @$locked."\n";
+	
+	if (scalar @$locked){
+		for (@$locked){
+			my($abs, $time,$hostname) = ( $_->[0], time_format('yy/dd/mm hh:mm',$_->[1]), $_->[2] );
+			printf '%30s %s %s',  $hostname, $time, "$abs\n";
+		}
+		print "\n";
+	}
+
+
+}
+
+sub statuslog_report {
+
+   $fix->status_log_can_report or return;
+
+
+
+
+   printf STDERR "Indexing Benchmarking Report:\n";
+   
+   for (
+      ['Interval hours', ( $fix->status_log_seconds / 3600 )                                    ],
+      ['Files indexed in this time', $fix->status_log_count                                     ],
+      ['Average seconds to index a file', $fix->status_log_average                              ],
+      ['Estimated hours until 100 percent indexed', ( $fix->status_log_remainder / 3600 )       ],
+      ['Estimated days until 100 percent indexed', ( $fix->status_log_remainder / (3600 * 24) ) ],
+   ){
+   
+      printf STDERR "%50s : %s\n", $_->[0], (sprintf '%u',$_->[1]);
+
+   }
+
+
+
+}
+
+
+
+
+=pod
+
+=head1 NAME
+
+faistatus - stop indexers, get indexing status, clean out tmp cache, etc
+
+=head1 DESCRIPTION
+
+View some status data about the archive indexer, how many files are awaiting indexing, estimate until all done, etc.
+You can also clear failed indexing locks, etc
+
+
+=head1 OPTION FLAGS
+
+   -d debug
+   -D show md5sum table dupe count and exit
+   -C cleanout, stop indexers and cleanout temp
+   -R cleanout and restart indexers
+   -S stop all indexers
+   -L reset indexing locks table
+   
+
+=head1 PARAMETERS
+
+   -c config file, by default we use /etc/faindex.conf
+   -p page number
+   -l line number
+   -i get indexing run status on host machine, cpu load, etc
+   -s seconds ammount, use in conjuction with -L   
+   
+
+=head1 EXAMPLE USAGE
+
+If you instead want to see data for a file:
+
+   faistatus ./path/to/file.pdf
+
+If you want to see page 1 of file
+
+   faistatus -p 1 ./path/to/file.pdf
+
+If you want to see page 1 line 4
+
+   faistatus -p 1 -l 4 ./path/to/file.pdf
+
+If you want to see all indexed text for file
+
+   faistatus -a ./path/to/file.pdf
+
+
+=head1 CLEARING OLD LOCKS, EXAMPLE USAGE:
+
+Only clear locks older then 600 seconds (10 mins)
+
+	faistatus -L -s 600
+
+Reset indexing lock table, drop and create
+
+   faistatus -L
+
+
+=head1 AUTHOR
+
+Leo Charre lcharre at cpan dot org
+
+=cut
+
+
+
+
+
+
+

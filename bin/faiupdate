@@ -1,0 +1,109 @@
+#!/usr/bin/perl -w
+use strict;
+use base 'LEOCHARRE::CLI';
+use lib './lib';
+use FileArchiveIndexer;
+our $VERSION = sprintf "%d.%02d", q$Revision: 1.11 $ =~ /(\d+)/g;
+
+my $o = gopts('c:');
+
+if ($o->{d}){
+   DEBUG(1);
+   $FileArchiveIndexer::DEBUG=1;
+}
+
+$o->{c} ||= '/etc/faindex.conf';
+
+
+my $fai = new FileArchiveIndexer({ abs_conf => $o->{c} });
+
+
+
+# redo the files table
+
+# WHAT FILES?
+# obviously, for your system, you will have to make some decisions about what you want to try and index, what kinds of files.
+# you could decide you just want to index text files, or only files that have the string 'finished' inside the filename.
+# the rules set in this script are particular to my organization, but are vague enough that it should be plenty useful to your
+# archive as well. 
+# set some rules for things we want or not
+# this is specific for dyer, we dont want to index files in client/incoming dirs because they are temporarily there
+$fai->finder->exec( # 
+   sub { 
+      my $fullpath = $_[2];
+      $fullpath=~/\/incoming\//i  or return 1;
+      return 0;
+   }
+);
+
+$fai->finder->name( qr/\.pdf$|\.txt$/i );
+
+# this next line is for devel testing, so we just do txt files quick and see errors
+#$fai->finder->name( qr/\.txt$/i );
+
+$fai->repopulate_files_table;
+
+
+
+
+
+
+
+
+__END__
+
+=pod
+
+=head1 NAME
+
+faiupdate - rebuild files table
+
+=head1 DESCRIPTION
+
+This script should run nightly. Takes maybe 20 mins to run.
+This just populates the files table with locations and md5sums of files.
+
+Later you can call faindexrun to actually index any files that do not have indexed info.
+
+=head1 PARAMETERS
+
+   -c abs path to config file, default is /etc/faindex.conf
+
+=head1 OPTIONS
+
+   -d debug info on
+
+=head1 USAGE
+
+   faiupdate
+
+=head1 SEE ALSO
+
+L<FileArchiveIndexer>
+L<faistatus>
+
+=head1 AUTHOR
+
+Leo Charre leocharre at cpan dot org
+
+=head1 COPYRIGHT
+
+Copyright (c) 2007 Leo Charre. All rights reserved.
+
+=head1 LICENSE
+
+This package is free software; you can redistribute it and/or modify it under the same terms as Perl itself, i.e., under the terms of the "Artistic License" or the "GNU General Public License".
+
+=head1 DISCLAIMER
+
+This package is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+See the "GNU General Public License" for more details.
+
+=cut
+
+   
+
+
+
+

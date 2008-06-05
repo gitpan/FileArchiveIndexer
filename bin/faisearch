@@ -1,0 +1,115 @@
+#!/usr/bin/perl -w
+use strict;
+use base 'LEOCHARRE::CLI';
+use lib './lib';
+use FileArchiveIndexer::Search;
+our $VERSION = sprintf "%d.%02d", q$Revision: 1.7 $ =~ /(\d+)/g;
+my $o = gopts('t:');
+
+my $paths = argv_aspaths();
+$paths ||=[];
+
+$o->{c} ||= '/etc/faindex.conf';
+
+if ($o->{d}){
+	$FileArchiveIndexer::Search::DEBUG = 1;
+	print STDERR " debug on\n";
+}
+
+
+my $s = new FileArchiveIndexer::Search({ abs_conf => $o->{c} });
+
+
+$o->{t} or man() and exit;
+
+
+
+
+$s->execute($o->{t},$paths) ;
+
+
+printf "searched for [$$o{t}]\nfound %s..\n\n", $s->results_count;
+
+
+
+
+$s->results_count or die("nothing found");
+
+
+my $files = $s->results_files;
+
+for (@$files){
+		my $matches = $s->result($_);
+		
+		print "$_\n";
+
+		for (@$matches){
+			my ($page, $line, $content) = @$_;
+			print "page $page, line $line, content [$content]\n";
+		}
+		print "\n";
+}
+
+
+
+
+
+
+__END__
+
+=pod
+
+=head1 NAME
+
+faisearch - search inside documents
+
+=head1 DESCRIPTION
+
+You use this cli to find text inside indexed documents.
+This is also useful to see how things are going when indexing a large archive.
+
+=head1 PARAMETERS
+
+	-t text term phrase, etc you want to search.   
+
+=head1 OPTION FLAGS
+
+   -d debug info on
+   -v print version and exit
+
+=head1 SEARCH IN A PATH
+
+You can provide as argument a directory to narrow the search to
+
+	faisearch -t 'this is the text' ./
+
+=head1 USAGE EXAMPLES
+
+   faisearch -t 'Charles+Hamilton'
+   faisearch -t '10413 Fawcett Street'
+
+=head1 SEE ALSO
+
+L<FileArchiveIndexer>
+
+=head1 AUTHOR
+
+Leo Charre leocharre at cpan dot org
+
+=head1 COPYRIGHT
+
+Copyright (c) 2007 Leo Charre. All rights reserved.
+
+=head1 LICENSE
+
+This package is free software; you can redistribute it and/or modify it under the same terms as Perl itself, i.e., under the terms of the "Artistic License" or the "GNU General Public License".
+
+=head1 DISCLAIMER
+
+This package is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+See the "GNU General Public License" for more details.
+
+=cut
+
+   

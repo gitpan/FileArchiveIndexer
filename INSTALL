@@ -1,0 +1,19 @@
+INSTALL
+=======
+
+check dependencies
+
+tesseract
+pdftk
+PDF::API2
+Image::Magick... etc
+
+
+You will need to setup the database 
+
+
+If you are using PDF-OCR
+make sure that /tmp/PDF-OCR-Thorough-Cached exists and is writable to the running user id
+
+
+

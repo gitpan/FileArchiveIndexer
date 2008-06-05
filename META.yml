@@ -1,0 +1,29 @@
+# http://module-build.sourceforge.net/META-spec.html
+#XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
+name:         FileArchiveIndexer
+version:      1.29
+version_from: lib/FileArchiveIndexer.pm
+installdirs:  site
+requires:
+    Benchmark::Timer:              0
+    Carp:                          0
+    CGI::Application:              0
+    CGI::Application::Plugin::AutoRunmode: 0
+    CGI::Application::Plugin::TmplInnerOuter: 0
+    DBD::mysql:                    0
+    DBD::SQLite:                   0
+    DBI:                           0
+    Digest::MD5:                   0
+    Digest::MD5::File:             0
+    File::Find::Rule:              0
+    File::Path:                    0
+    File::PathInfo::Ext:           1.14
+    HTML::Template::Default:       0
+    LEOCHARRE::CLI:                1.01
+    LEOCHARRE::DEBUG:              1.02
+    LEOCHARRE::PMUsed:             0
+    PDF::OCR::Thorough:            0
+    Smart::Comments:               0
+
+distribution_type: module
+generated_by: ExtUtils::MakeMaker version 6.30

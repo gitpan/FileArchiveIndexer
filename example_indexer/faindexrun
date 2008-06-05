@@ -1,0 +1,211 @@
+#!/usr/bin/perl -w
+use strict;
+use base 'Dyer::CLI';
+use lib './lib';
+use FileArchiveIndexer;
+use YAML;
+use PDF::OCR::Thorough::Cached;
+
+
+our $VERSION = sprintf "%d.%02d", q$Revision: 1.1 $ =~ /(\d+)/g;
+
+
+my $oconf = config('/etc/pdf2ocr.conf') or die('no/etc/pdf2ocr.conf, see PDF::OCR::Thorough::Cached');
+
+
+my $o = gopts('c:dm:');
+if ($o->{d}){
+   DEBUG(1);
+   $FileArchiveIndexer::DEBUG=1;
+} 
+$o->{c} ||= '/etc/faindex.conf';
+my $conf = YAML::LoadFile($o->{c}) or die("bad conf file $$o{c}");
+defined $conf->{DOCUMENT_ROOT} or die("missing DOCUMENT_ROOT in $$o{c}");
+-d $conf->{DOCUMENT_ROOT} or die("is not dir DOCUMENT_ROOT $$conf{DOCUMENT_ROOT}");
+
+$o->{m} ||= 2;
+
+my $fix = new FileArchiveIndexer($conf);
+
+
+
+my $paths = argv_aspaths();
+$paths ||= [];
+my $pending;
+my $_aspaths = 0;
+if (scalar @$paths){
+	$_aspaths = 1;
+	$pending  = $paths;
+}
+
+
+else {
+	$pending = $fix->get_indexpending($o->{m});
+}	
+
+INDEXFILE : for (  @$pending  ){
+	my ($filesid,$abs_path,$md5sumid);
+	
+
+	if ($_aspaths){
+		$abs_path = $_;
+		($filesid, $md5sumid) = $fix->indexing_lock_by_path($abs_path) or next INDEXFILE;
+	}
+
+	else {
+		
+		($filesid, $abs_path) = @$_;
+		
+		#lock
+		$md5sumid = $fix->indexing_lock($filesid) or next INDEXFILE; # or some other process is dealing with it
+	
+	}
+
+	$md5sumid and $filesid and $abs_path or warn("missing md5sumid, filesid or abs path ") and next INDEXFILE;
+
+	my $alltext;
+	
+	# PDF FILE
+	if ($abs_path=~/\.pdf$/i ){
+		print STDERR "is pdf.. getting content by PDF::OCR::Thorough.. " if DEBUG;
+	
+      # 1) get the content   
+      if (my $o = new PDF::OCR::Thorough::Cached($abs_path)){
+		
+			$o->set_abs_cache( $oconf->{abs_cache} );
+			
+         $alltext = $o->get_text; # can be TIMELY
+
+			print STDERR "got it.\n" if DEBUG;
+      }
+
+		
+      else {
+         # data is bad?
+         print STDERR " PDF::OCR::Thorough cannot instance for $abs_path\n" if DEBUG;
+         $fix->delete_record($filesid);
+			
+         $fix->dbh->commit;
+			
+			next INDEXFILE;
+      }
+   
+   }
+
+
+
+
+	
+
+	# TXT FILE
+   elsif( -T $abs_path ){   
+		print STDERR "is text. will slurp\n" if DEBUG;
+      # slurp it?
+      $alltext = File::Slurp::slurp($abs_path); 		
+		
+   }
+	
+	
+	
+	
+	
+	# UNKNOWN TYPE 
+	else {
+   
+      print STDERR " we don't know how to get text out of $abs_path, skipping.\n" if DEBUG;
+      $fix->delete_record($filesid);
+      $fix->dbh->commit;
+		next INDEXFILE;
+   }
+
+
+
+
+   unless( $alltext=~/\w/ ){
+		print STDERR "nothing returned from slurping $abs_path? skipping\n";
+      $fix->delete_record($filesid);
+      $fix->dbh->commit;
+		next INDEXFILE;
+	}		
+
+	print STDERR" inserting record.. \n" if DEBUG;
+	# create entries and insert them from the text we have
+	$fix->insert_record($md5sumid,$alltext);
+
+
+	
+	# unlock
+	$fix->indexing_lock_release( $filesid );	#	$fix->dbh->commit; actually, indexing lock release commits :-)
+	print STDERR "done, indexed $abs_path complete.\n\n" if DEBUG;
+	
+}
+
+
+
+exit;
+
+
+
+
+
+__END__
+
+=pod
+
+=head1 NAME
+
+faindexrun - index some files from the index pending queue
+
+=head1 DESCRIPTION
+
+This is an example indexer using FileArchiveIndexer.
+It turns PDF documents into text using PDF::OCR::Thorough from PDF::OCR
+
+This script should run nightly
+This script gets a list of files that need indexing from a queue and runs it
+
+This is part of FileArchiveIndexer
+
+Optionally, you can provide a list of paths as arguments.. if the files are inside the pending list, it will index.
+
+=head1 PARAMETERS
+
+   -c abs path to config file, default is /etc/faindex.conf
+   -m max files to index in this run, default is 2
+
+=head1 OPTIONS
+
+   -d debug info on   
+
+=head1 EXAMPLE USAGE
+
+To index next 4 files pending..
+
+	faindexrun -m 4
+
+To index a specific file 
+
+	faindexrun ./myfile.pdf
+
+If the file is already indexed, or locked, will not reindex.
+The file must already be in the files table.
+
+=head1 CONFIGURATION
+
+See L<faiupdate>
+
+=head1 AUTHOR
+
+Leo Charre leocharre at cpan dot org
+
+=head1 SEE ALSO
+
+L<FileArchiveIndexer>
+L<PDF::OCR::Thorough::Cached>
+
+=cut
+
+   
+
+
+

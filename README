@@ -1,0 +1,29 @@
+INSTALLING
+
+I suggest you get the latest version distribution and install via the command line.
+
+   perl Makefile.PL
+   make test
+   make install
+
+More notes pending.
+
+DESCRIPTION
+
+Mainly geared towards PDF indexing, but should develop to index anything
+
+
+DEVNOTES
+
+the test 3 fails with sqlite but succeeds with mysql.. grr
+
+
+CAVEATS
+
+Project is under development.
+
+CONTACT
+
+Leo Charre leocharre at cpan dot org
+
+
